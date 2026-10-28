@@ -1,104 +1,209 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { UserRole, BranchCode, IUser } from "@woods-decor/types";
+import { UserRole } from "@woods-decor/types";
 import {
   Users,
   Clock,
   ShieldCheck,
   Building2,
-  CheckCircle2,
-  MapPin,
   Camera,
   Plus,
   Search,
-  Activity,
-  AlertTriangle,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
+
+interface Employee {
+  _id: string;
+  name: string;
+  employeeCode: string;
+  phone: string;
+  email?: string;
+  role: string;
+  department: string;
+  branchId?: {
+    _id: string;
+    name: string;
+    code: string;
+  };
+  shift: {
+    startTime: string;
+    minWorkHours: number;
+    graceMinutes: number;
+  };
+  status: "active" | "inactive" | "resigned";
+}
+
+const API_BASE = "http://localhost:5000/api/v1";
 
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState<"users" | "attendance" | "permissions">("users");
-  const [selectedBranch, setSelectedBranch] = useState<string>("mohali");
   const [selectedRole, setSelectedRole] = useState<UserRole>("super_admin");
   const [backendStatus, setBackendStatus] = useState<"checking" | "online" | "offline">("checking");
 
-  // Sample data for UI presentation
-  const [staffList, setStaffList] = useState<Array<{
-    id: string;
-    name: string;
-    empId: string;
-    branch: string;
-    role: string;
-    dept: string;
-    shift: string;
-    status: "active" | "inactive";
-  }>>([
-    { id: "1", name: "Harpreet Singh", empId: "KSWD-MOH-001", branch: "mohali", role: "branch_manager", dept: "Sales", shift: "09:30 AM", status: "active" },
-    { id: "2", name: "Simran Kaur", empId: "KSWD-MOH-004", branch: "mohali", role: "sales_staff", dept: "Sales", shift: "09:30 AM", status: "active" },
-    { id: "3", name: "Gurwinder Singh", empId: "KSWD-KHR-002", branch: "kharar", role: "sales_staff", dept: "Sales", shift: "10:00 AM", status: "active" },
-    { id: "4", name: "Liam O'Connor", empId: "KSWD-AUS-001", branch: "australia", role: "branch_manager", dept: "Sales", shift: "09:00 AM", status: "active" },
-  ]);
+  const [staffList, setStaffList] = useState<Employee[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+
   const [isPunchedIn, setIsPunchedIn] = useState(false);
   const [currentTime, setCurrentTime] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
 
-  // Check backend health
+  // New Employee Form State
+  const [formData, setFormData] = useState({
+    name: "",
+    employeeCode: "",
+    phone: "",
+    email: "",
+    password: "",
+    role: "sales_staff",
+    department: "Sales",
+    shiftStart: "09:30",
+    graceMinutes: 15,
+  });
+
+  // Fetch employees from live backend API
+  const fetchEmployees = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/users`);
+      if (res.ok) {
+        const json = await res.json();
+        setStaffList(json.data || []);
+      }
+    } catch (err) {
+      console.error("Failed to load staff list", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetch("http://localhost:5000/api/v1/health")
+    // Check backend health
+    fetch(`${API_BASE}/health`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.status === "ok") setBackendStatus("online");
-        else setBackendStatus("offline");
+        if (data.status === "ok") {
+          setBackendStatus("online");
+          fetchEmployees();
+        } else {
+          setBackendStatus("offline");
+          setLoading(false);
+        }
       })
-      .catch(() => setBackendStatus("offline"));
+      .catch(() => {
+        setBackendStatus("offline");
+        setLoading(false);
+      });
 
     const interval = setInterval(() => {
-      const now = new Date();
-      setCurrentTime(now.toLocaleTimeString());
+      setCurrentTime(new Date().toLocaleTimeString());
     }, 1000);
 
     return () => clearInterval(interval);
   }, []);
 
+  const handleAddEmployee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setFormError("");
+
+    try {
+      const res = await fetch(`${API_BASE}/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: formData.name,
+          employeeCode: formData.employeeCode,
+          phone: formData.phone,
+          email: formData.email || undefined,
+          password: formData.password || "woods123",
+          role: formData.role,
+          department: formData.department,
+          shift: {
+            startTime: formData.shiftStart,
+            minWorkHours: 8,
+            graceMinutes: Number(formData.graceMinutes),
+          },
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.message || "Failed to create employee");
+      }
+
+      setIsModalOpen(false);
+      setFormData({
+        name: "",
+        employeeCode: "",
+        phone: "",
+        email: "",
+        password: "",
+        role: "sales_staff",
+        department: "Sales",
+        shiftStart: "09:30",
+        graceMinutes: 15,
+      });
+      fetchEmployees();
+    } catch (err: any) {
+      setFormError(err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleToggleStatus = async (id: string, currentStatus: string) => {
+    const nextStatus = currentStatus === "active" ? "inactive" : "active";
+    try {
+      const res = await fetch(`${API_BASE}/users/${id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (res.ok) {
+        fetchEmployees();
+      }
+    } catch (err) {
+      console.error("Failed to update status", err);
+    }
+  };
+
   const filteredStaff = staffList.filter((s) => {
-    const matchBranch = selectedBranch === "all" || s.branch === selectedBranch;
-    const matchSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase()) || s.empId.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchBranch && matchSearch;
+    const matchStatus = statusFilter === "all" || s.status === statusFilter;
+    const matchSearch =
+      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.employeeCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.phone.includes(searchTerm);
+    return matchStatus && matchSearch;
   });
 
   return (
     <div className="min-h-screen bg-[#FAF8F5] text-stone-900 flex flex-col font-sans">
       
-      {/* 1. TOP GLOBAL HEADER */}
+      {/* 1. TOP GLOBAL HEADER (Tailored Cleanly for Mohali HQ) */}
       <header className="bg-white border-b border-[#EAE4DC] px-6 py-3.5 sticky top-0 z-40 flex items-center justify-between shadow-xs">
         <div className="flex items-center gap-6">
           <div>
             <div className="text-sm font-black tracking-wider uppercase text-stone-900">KS Woods Decor</div>
-            <div className="text-[10px] uppercase tracking-widest text-[#B5562A] font-bold">Central Portal</div>
+            <div className="text-[10px] uppercase tracking-widest text-[#B5562A] font-bold">Management Portal</div>
           </div>
 
-          {/* Branch Switcher Pill */}
-          <div className="hidden sm:flex items-center gap-2 bg-[#FAF8F5] border border-[#EAE4DC] px-3 py-1.5 rounded-full text-xs font-semibold">
-            <span className="text-stone-400">📍 Branch:</span>
-            <select
-              value={selectedBranch}
-              onChange={(e) => setSelectedBranch(e.target.value)}
-              aria-label="Filter by branch"
-              className="bg-transparent font-bold text-stone-800 outline-none cursor-pointer"
-            >
-              <option value="all">🌐 All Branches (Consolidated)</option>
-              <option value="mohali">🏢 Mohali (Showroom & Factory)</option>
-              <option value="kharar">🏬 Kharar Showroom</option>
-              <option value="australia">🦘 Australia (Sydney Branch)</option>
-            </select>
+          {/* Clean Branch Badge (Focused on Mohali Showroom & Factory) */}
+          <div className="flex items-center gap-2 bg-[#FAF8F5] border border-[#EAE4DC] px-3.5 py-1.5 rounded-full text-xs font-semibold text-stone-700">
+            <Building2 className="w-3.5 h-3.5 text-[#B5562A]" />
+            <span>Mohali HQ & Factory</span>
+            <span className="text-[10px] text-stone-400 font-mono">(Plot 787, JLPL)</span>
           </div>
         </div>
 
         {/* Right side status & role */}
         <div className="flex items-center gap-4">
-          {/* Backend Status indicator */}
+          {/* Live MongoDB Atlas / API indicator */}
           <div className="hidden md:flex items-center gap-1.5 text-xs font-medium bg-stone-50 border border-stone-200 px-2.5 py-1 rounded-md">
             <span
               className={`w-2 h-2 rounded-full ${
@@ -106,7 +211,7 @@ export default function HomePage() {
               }`}
             />
             <span className="text-stone-500 text-[11px]">
-              API: {backendStatus === "online" ? "Connected (Port 5000)" : "Offline / Standby"}
+              {backendStatus === "online" ? "Atlas DB Live" : "Connecting..."}
             </span>
           </div>
 
@@ -127,7 +232,7 @@ export default function HomePage() {
           </div>
 
           <div className="w-8 h-8 rounded-full bg-[#B5562A] text-white flex items-center justify-center font-bold text-xs shadow-xs">
-            AD
+            WD
           </div>
         </div>
       </header>
@@ -140,7 +245,7 @@ export default function HomePage() {
             activeTab === "users" ? "border-[#B5562A] text-[#B5562A]" : "border-transparent text-stone-500 hover:text-stone-800"
           }`}
         >
-          <Users className="w-4 h-4" /> Staff Directory & Management
+          <Users className="w-4 h-4" /> Staff Directory ({staffList.length})
         </button>
         <button
           onClick={() => setActiveTab("attendance")}
@@ -169,7 +274,7 @@ export default function HomePage() {
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-stone-900">Staff & Identity Directory</h1>
-                <p className="text-sm text-stone-500 mt-0.5">Manage employee access, branch transfers, roles, and shift timings.</p>
+                <p className="text-sm text-stone-500 mt-0.5">Employees assigned to Mohali Showroom & Factory.</p>
               </div>
               {(selectedRole === "super_admin" || selectedRole === "hr") && (
                 <button
@@ -182,18 +287,28 @@ export default function HomePage() {
               )}
             </div>
 
-            {/* Search & Filter */}
-            <div className="bg-white border border-[#EAE4DC] p-3 rounded-xl flex items-center gap-3 shadow-xs">
+            {/* Search & Filter Strip */}
+            <div className="bg-white border border-[#EAE4DC] p-3 rounded-xl flex items-center justify-between gap-4 shadow-xs">
               <div className="flex items-center gap-2 flex-1">
                 <Search className="w-4 h-4 text-stone-400" />
                 <input
                   type="text"
-                  placeholder="Search by name or employee ID..."
+                  placeholder="Search by name, employee ID, or phone..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full text-sm outline-none bg-transparent"
                 />
               </div>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                aria-label="Filter status"
+                className="text-xs font-semibold px-3 py-1.5 border border-stone-200 rounded-lg outline-none bg-stone-50 text-stone-700"
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active Only</option>
+                <option value="inactive">Deactivated</option>
+              </select>
             </div>
 
             {/* Clean Staff Table */}
@@ -203,7 +318,7 @@ export default function HomePage() {
                   <thead>
                     <tr className="bg-[#FAF8F5] border-b border-[#EAE4DC] text-xs font-bold text-stone-500 uppercase tracking-wider">
                       <th className="py-3 px-4">Employee</th>
-                      <th className="py-3 px-4">Branch</th>
+                      <th className="py-3 px-4">Phone / Email</th>
                       <th className="py-3 px-4">Role & Dept</th>
                       <th className="py-3 px-4">Shift Timings</th>
                       <th className="py-3 px-4">Status</th>
@@ -211,31 +326,60 @@ export default function HomePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100 font-medium">
-                    {filteredStaff.map((s) => (
-                      <tr key={s.id} className="hover:bg-stone-50/60 transition">
-                        <td className="py-3 px-4">
-                          <div className="font-bold text-stone-900">{s.name}</div>
-                          <div className="text-xs text-stone-400">{s.empId}</div>
-                        </td>
-                        <td className="py-3 px-4 text-xs font-semibold capitalize text-stone-700">
-                          {s.branch === "mohali" ? "🏢 Mohali" : s.branch === "kharar" ? "🏬 Kharar" : "🦘 Australia"}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="text-xs font-bold capitalize text-stone-800">{s.role.replace("_", " ")}</div>
-                          <div className="text-[11px] text-stone-400">{s.dept}</div>
-                        </td>
-                        <td className="py-3 px-4 text-xs text-stone-600">{s.shift}</td>
-                        <td className="py-3 px-4">
-                          <span className="bg-emerald-50 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-bold">
-                            Active
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right space-x-2">
-                          <button className="text-xs font-semibold text-[#B5562A] hover:underline">Edit</button>
-                          <button className="text-xs font-semibold text-stone-400 hover:text-stone-700">Deactivate</button>
+                    {loading ? (
+                      <tr>
+                        <td colSpan={6} className="text-center py-8 text-stone-400">
+                          Connecting to MongoDB Atlas...
                         </td>
                       </tr>
-                    ))}
+                    ) : filteredStaff.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="text-center py-8 text-stone-400">
+                          No employees found. Click "+ Add Employee" to add the first one.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredStaff.map((s) => (
+                        <tr key={s._id} className="hover:bg-stone-50/60 transition">
+                          <td className="py-3 px-4">
+                            <div className="font-bold text-stone-900">{s.name}</div>
+                            <div className="text-xs text-stone-400 font-mono">{s.employeeCode}</div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="text-xs text-stone-700">{s.phone}</div>
+                            <div className="text-[11px] text-stone-400">{s.email || "No email"}</div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="text-xs font-bold capitalize text-stone-800">{s.role.replace("_", " ")}</div>
+                            <div className="text-[11px] text-stone-400">{s.department}</div>
+                          </td>
+                          <td className="py-3 px-4 text-xs text-stone-600">
+                            {s.shift?.startTime || "09:30"} (Grace: {s.shift?.graceMinutes || 15}m)
+                          </td>
+                          <td className="py-3 px-4">
+                            <span
+                              className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
+                                s.status === "active"
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : "bg-stone-100 text-stone-500"
+                              }`}
+                            >
+                              {s.status === "active" ? "Active" : "Deactivated"}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right space-x-2">
+                            {(selectedRole === "super_admin" || selectedRole === "hr") && (
+                              <button
+                                onClick={() => handleToggleStatus(s._id, s.status)}
+                                className="text-xs font-semibold text-stone-400 hover:text-stone-700 transition"
+                              >
+                                {s.status === "active" ? "Deactivate" : "Reactivate"}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -248,11 +392,10 @@ export default function HomePage() {
           <section className="max-w-xl mx-auto space-y-6">
             <div className="text-center">
               <h1 className="text-2xl font-bold tracking-tight text-stone-900">Attendance Terminal</h1>
-              <p className="text-sm text-stone-500 mt-1">Live camera verification & GPS branch geofencing</p>
+              <p className="text-sm text-stone-500 mt-1">Mohali Showroom & Factory Geofence Verification</p>
             </div>
 
             <div className="bg-white border border-[#EAE4DC] rounded-2xl p-6 shadow-xs space-y-5">
-              {/* Clock & Shift */}
               <div className="flex items-center justify-between border-b border-stone-100 pb-4">
                 <div>
                   <div className="text-xs uppercase tracking-wider font-bold text-stone-400">Current Time</div>
@@ -270,10 +413,8 @@ export default function HomePage() {
                 <div className="flex items-center gap-2.5">
                   <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
                   <div>
-                    <div className="font-bold text-emerald-900">
-                      📍 {selectedBranch === "mohali" ? "Mohali Showroom & Factory" : selectedBranch === "kharar" ? "Kharar Showroom" : "Australia Sydney Branch"}
-                    </div>
-                    <div className="text-emerald-700">Within 14 meters of showroom perimeter</div>
+                    <div className="font-bold text-emerald-900">📍 Mohali Showroom & Factory</div>
+                    <div className="text-emerald-700">Plot No. 787, JLPL Industrial Area · Within 14m</div>
                   </div>
                 </div>
                 <span className="bg-emerald-600 text-white font-bold text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">
@@ -352,7 +493,7 @@ export default function HomePage() {
                   </span>
                 </div>
                 <p className="text-xs text-stone-500 leading-relaxed">
-                  Multi-branch showroom floor display counts and warehouse raw wood/fabric balances.
+                  Mohali showroom floor display counts and warehouse raw wood/fabric balances.
                 </p>
                 <div className="pt-2 border-t border-stone-100 text-[11px] text-stone-400">
                   Visible to: Super Admin, Branch Manager, Accounts
@@ -371,7 +512,7 @@ export default function HomePage() {
                   </span>
                 </div>
                 <p className="text-xs text-stone-500 leading-relaxed">
-                  Geofence coordinates adjustment, GSTIN/ABN tax rules, and bank account setups.
+                  Geofence coordinates adjustment, GSTIN tax rules, and bank account setups.
                 </p>
                 <div className="pt-2 border-t border-stone-100 text-[11px] text-stone-400">
                   Visible to: Super Admin only
@@ -382,52 +523,122 @@ export default function HomePage() {
         )}
       </main>
 
-      {/* MODAL: ADD EMPLOYEE */}
+      {/* MODAL: ADD EMPLOYEE (Hooks to live MongoDB Atlas) */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-[#EAE4DC] space-y-4">
             <div className="flex items-center justify-between border-b border-stone-100 pb-3">
-              <h2 className="text-lg font-bold text-stone-900">Add New Employee</h2>
+              <h2 className="text-lg font-bold text-stone-900">Add New Employee (Mohali HQ)</h2>
               <button onClick={() => setIsModalOpen(false)} className="text-stone-400 hover:text-stone-600 font-bold">
                 ✕
               </button>
             </div>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                setIsModalOpen(false);
-              }}
-              className="space-y-4 text-sm"
-            >
+            {formError && (
+              <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs p-3 rounded-lg flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleAddEmployee} className="space-y-4 text-sm">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-stone-600 mb-1">Full Name</label>
-                  <input type="text" required placeholder="e.g. Jaspreet Singh" className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-[#B5562A]" />
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Jaspreet Singh"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-[#B5562A]"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-stone-600 mb-1">Employee ID</label>
-                  <input type="text" required placeholder="e.g. KSWD-MOH-015" className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-[#B5562A]" />
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. KSWD-MOH-015"
+                    value={formData.employeeCode}
+                    onChange={(e) => setFormData({ ...formData, employeeCode: e.target.value })}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-[#B5562A] uppercase"
+                  />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-stone-600 mb-1">Assigned Branch</label>
-                  <select className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-[#B5562A] bg-white">
-                    <option value="mohali">Mohali (HQ & Factory)</option>
-                    <option value="kharar">Kharar Showroom</option>
-                    <option value="australia">Australia (Sydney Branch)</option>
-                  </select>
+                  <label className="block text-xs font-bold text-stone-600 mb-1">Phone Number</label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="+91 9876543210"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-[#B5562A]"
+                  />
                 </div>
                 <div>
+                  <label className="block text-xs font-bold text-stone-600 mb-1">Email (Optional)</label>
+                  <input
+                    type="email"
+                    placeholder="jaspreet@woodsdecor.in"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-[#B5562A]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
                   <label className="block text-xs font-bold text-stone-600 mb-1">Role</label>
-                  <select className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-[#B5562A] bg-white">
+                  <select
+                    value={formData.role}
+                    onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-[#B5562A] bg-white capitalize"
+                  >
                     <option value="sales_staff">Sales Staff</option>
                     <option value="branch_manager">Branch Manager</option>
                     <option value="hr">HR Manager</option>
                     <option value="workshop_labour">Workshop Karigar</option>
                   </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-stone-600 mb-1">Department</label>
+                  <select
+                    value={formData.department}
+                    onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-[#B5562A] bg-white"
+                  >
+                    <option value="Sales">Sales & Showroom</option>
+                    <option value="Production">Production & Workshop</option>
+                    <option value="Design">Interior Architecture</option>
+                    <option value="Accounts">Accounts & Finance</option>
+                    <option value="HR">Human Resources</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-stone-600 mb-1">Shift Start Time</label>
+                  <input
+                    type="time"
+                    value={formData.shiftStart}
+                    onChange={(e) => setFormData({ ...formData, shiftStart: e.target.value })}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-[#B5562A]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-stone-600 mb-1">Grace Period (Minutes)</label>
+                  <input
+                    type="number"
+                    value={formData.graceMinutes}
+                    onChange={(e) => setFormData({ ...formData, graceMinutes: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-[#B5562A]"
+                  />
                 </div>
               </div>
 
@@ -441,9 +652,10 @@ export default function HomePage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-[#B5562A] hover:bg-[#8F3F1C] text-white rounded-lg font-semibold text-xs shadow-xs"
+                  disabled={isSubmitting}
+                  className="px-5 py-2 bg-[#B5562A] hover:bg-[#8F3F1C] text-white rounded-lg font-semibold text-xs shadow-xs disabled:opacity-50"
                 >
-                  Save Employee
+                  {isSubmitting ? "Saving..." : "Save Employee"}
                 </button>
               </div>
             </form>
