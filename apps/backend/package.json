@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "node init && tsx watch src/server.ts",
     "seed": "tsx src/scripts/seed.ts",
-    "build": "tsc",
-    "start": "node dist/server.js",
+    "build": "node init && tsc",
+    "start": "node init && node dist/server.js",
     "clean": "rm -rf dist"
   },
   "dependencies": {
